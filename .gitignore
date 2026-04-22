@@ -1,0 +1,35 @@
+# Environment Variables
+.env
+*.env
+
+# Build Files
+*.bin
+*.elf
+*.hex
+*.map
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# PlatformIO
+.pio/
+.pioenv/
+.piolibdeps/
+
+# Arduino
+libraries/
+tools/
+
+# Temporary
+*.tmp
+*.bak

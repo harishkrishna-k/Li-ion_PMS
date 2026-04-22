@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Li-ion Battery Performance Monitoring System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+    <meta name="description" content="IoT Battery Monitoring System with ESP32 and Supabase">
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <div class="container">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="7" width="20" height="14" rx="2"/>
+                        <path d="M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2"/>
+                        <line x1="12" y1="11" x2="12" y2="17"/>
+                        <path d="M9 14l3 3 3-3"/>
+                    </svg>
+                    <span>Li-ion PMS</span>
+                </div>
+                <ul class="nav-links">
+                    <li><a href="#dashboard">Dashboard</a></li>
+                    <li><a href="#about">About</a></li>
+                    <li><a href="https://github.com/harishkrishna-k/Li-ion_PMS" target="_blank">GitHub</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <div class="hero-content">
+                    <h1>Li-ion Battery Performance Monitoring System</h1>
+                    <p class="subtitle">Real-time battery health monitoring with ESP32 and cloud storage</p>
+                    <div class="hero-stats">
+                        <div class="stat-box">
+                            <span class="stat-value live" id="voltage">12.6</span>
+                            <span class="stat-label">Voltage (V)</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-value" id="current">1.24</span>
+                            <span class="stat-label">Current (A)</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-value" id="temperature">28.5</span>
+                            <span class="stat-label">Temperature (°C)</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-value" id="soc">95</span>
+                            <span class="stat-label">SOC (%)</span>
+                        </div>
+                    </div>
+                    <div class="status-bar">
+                        <span class="status-indicator" id="status-charging">
+                            <span class="dot"></span>
+                            Charging
+                        </span>
+                        <span class="status-indicator" id="status-wifi">
+                            <span class="dot online"></span>
+                            WiFi Connected
+                        </span>
+                        <span class="status-indicator" id="status-db">
+                            <span class="dot online"></span>
+                            Database Connected
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="dashboard" id="dashboard">
+            <div class="container">
+                <h2>Live Dashboard</h2>
+                <div class="cards">
+                    <div class="card voltage-card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                            </svg>
+                        </div>
+                        <div class="card-data">
+                            <span class="value" id="card-voltage">12.6</span>
+                            <span class="unit">V</span>
+                        </div>
+                        <div class="card-label">Battery Voltage</div>
+                        <div class="card-gauge">
+                            <div class="gauge-fill" id="voltage-gauge" style="width: 98%"></div>
+                        </div>
+                    </div>
+
+                    <div class="card current-card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 6v6l4 2"/>
+                            </svg>
+                        </div>
+                        <div class="card-data">
+                            <span class="value" id="card-current">1.24</span>
+                            <span class="unit">A</span>
+                        </div>
+                        <div class="card-label">Battery Current</div>
+                        <div class="card-gauge">
+                            <div class="gauge-fill" id="current-gauge" style="width: 40%"></div>
+                        </div>
+                    </div>
+
+                    <div class="card temp-card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 14.76V3.5a2.5 2.5 0 015 0v11.26a4.5 4.5 0 01-5 0z"/>
+                            </svg>
+                        </div>
+                        <div class="card-data">
+                            <span class="value" id="card-temperature">28.5</span>
+                            <span class="unit">°C</span>
+                        </div>
+                        <div class="card-label">Temperature</div>
+                        <div class="card-gauge">
+                            <div class="gauge-fill warning" id="temp-gauge" style="width: 35%"></div>
+                        </div>
+                    </div>
+
+                    <div class="card soc-card">
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="2" y="7" width="20" height="14" rx="2"/>
+                                <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/>
+                            </svg>
+                        </div>
+                        <div class="card-data">
+                            <span class="value" id="card-soc">95</span>
+                            <span class="unit">%</span>
+                        </div>
+                        <div class="card-label">State of Charge</div>
+                        <div class="card-gauge">
+                            <div class="gauge-fill" id="soc-gauge" style="width: 95%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-section">
+                    <h3>Historical Data</h3>
+                    <div class="chart-container">
+                        <canvas id="sensorsChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="hardware-section">
+                    <h3>Hardware Components</h3>
+                    <div class="hardware-grid">
+                        <div class="hardware-item">
+                            <div class="hardware-icon">🔋</div>
+                            <div class="hardware-name">Sony US21700VTC6A</div>
+                            <div class="hardware-desc">Li-ion Battery Pack</div>
+                        </div>
+                        <div class="hardware-item">
+                            <div class="hardware-icon">📟</div>
+                            <div class="hardware-name">NodeMCU ESP32</div>
+                            <div class="hardware-desc">Microcontroller</div>
+                        </div>
+                        <div class="hardware-item">
+                            <div class="hardware-icon">🌡️</div>
+                            <div class="hardware-name">LM35DZ</div>
+                            <div class="hardware-desc">Temperature Sensor</div>
+                        </div>
+                        <div class="hardware-item">
+                            <div class="hardware-icon">⚡</div>
+                            <div class="hardware-name">ACS712</div>
+                            <div class="hardware-desc">Current Sensor</div>
+                        </div>
+                        <div class="hardware-item">
+                            <div class="hardware-icon">🖥️</div>
+                            <div class="hardware-name">16x2 LCD</div>
+                            <div class="hardware-desc">Display Module</div>
+                        </div>
+                        <div class="hardware-item">
+                            <div class="hardware-icon">💨</div>
+                            <div class="hardware-name">BLDC Fan</div>
+                            <div class="hardware-desc">Cooling System</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="about" id="about">
+            <div class="container">
+                <h2>About This Project</h2>
+                <div class="about-grid">
+                    <div class="about-card">
+                        <h3>Overview</h3>
+                        <p>A comprehensive battery monitoring system for Li-ion batteries, developed as a B.E. final year project. The system monitors voltage, current, and temperature in real-time, with automatic cooling control and remote data storage via Supabase.</p>
+                    </div>
+                    <div class="about-card">
+                        <h3>Features</h3>
+                        <ul>
+                            <li>Real-time voltage, current, and temperature monitoring</li>
+                            <li>16x2 LCD display with status updates</li>
+                            <li>Automatic cooling fan control</li>
+                            <li>Supabase cloud database integration</li>
+                            <li>Portfolio-ready dashboard</li>
+                        </ul>
+                    </div>
+                    <div class="about-card">
+                        <h3>Tech Stack</h3>
+                        <ul>
+                            <li><strong>Hardware:</strong> NodeMCU ESP32, LM35, ACS712, 16x2 LCD</li>
+                            <li><strong>Cloud:</strong> Supabase PostgreSQL</li>
+                            <li><strong>Frontend:</strong> HTML, CSS, JavaScript</li>
+                            <li><strong>Deployment:</strong> GitHub Pages</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 Li-ion Battery Performance Monitoring System. Built with ESP32 & Supabase.</p>
+            <div class="footer-links">
+                <a href="https://github.com/harishkrishna-k/Li-ion_PMS" target="_blank">GitHub</a>
+                <a href="https://supabase.com" target="_blank">Supabase</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
