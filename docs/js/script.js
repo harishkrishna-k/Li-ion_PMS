@@ -1,13 +1,17 @@
 /**
- * Li-ion Battery Performance Monitoring System
- * Dashboard JavaScript - Demo Version with Mock Data
+ * Li-ion Battery Monitoring System
+ * Dashboard with Chart.js Integration
  */
 
 (function() {
     'use strict';
 
-    // Mock sensor data for portfolio demonstration
-    // Replace with actual Supabase fetch in production
+    // Configuration
+    const SUPABASE_URL = 'https://your-project.supabase.co';
+    const SUPABASE_KEY = 'your-anon-key';
+    const REFRESH_INTERVAL = 5000;
+
+    // Mock data for demonstration
     const mockData = {
         voltage: 12.6,
         current: 1.24,
@@ -18,7 +22,7 @@
         dbConnected: true
     };
 
-    // Historical data for chart
+    // Historical data
     const historicalData = {
         labels: [],
         voltage: [],
@@ -26,51 +30,47 @@
         temperature: []
     };
 
-    // Generate mock historical data
-    function generateHistoricalData() {
+    // Generate initial data
+    function generateInitialData() {
         const now = Date.now();
-        for (let i = 20; i >= 0; i--) {
+        for (let i = 30; i >= 0; i--) {
             const time = new Date(now - i * 5 * 60 * 1000);
             historicalData.labels.push(time.toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit'
             }));
-            historicalData.voltage.push(11.8 + Math.random() * 1.2);
+            historicalData.voltage.push(11.5 + Math.random() * 1.5);
             historicalData.current.push(0.5 + Math.random() * 2.5);
             historicalData.temperature.push(25 + Math.random() * 15);
         }
     }
 
-    // Generate initial data
-    generateHistoricalData();
-
-    // Update dashboard with mock data
+    // Update dashboard
     function updateDashboard() {
-        // Add some random variation to simulate live data
+        // Simulate small variations
         mockData.voltage = +(mockData.voltage + (Math.random() - 0.5) * 0.1).toFixed(2);
         mockData.current = +(mockData.current + (Math.random() - 0.5) * 0.2).toFixed(2);
         mockData.temperature = +(mockData.temperature + (Math.random() - 0.5) * 1).toFixed(1);
-        mockData.soc = Math.min(100, Math.max(0, +(mockData.soc + (Math.random() - 0.5) * 2)));
-
-        // Calculate SOC from voltage
+        
+        // Update SOC from voltage
         const socFromVoltage = Math.min(100, Math.max(0,
             ((mockData.voltage - 8.0) / (12.9 - 8.0)) * 100
         ));
         mockData.soc = socFromVoltage;
 
-        // Update hero stats
+        // Hero stats
         document.getElementById('voltage').textContent = mockData.voltage.toFixed(1);
         document.getElementById('current').textContent = mockData.current.toFixed(2);
         document.getElementById('temperature').textContent = mockData.temperature.toFixed(1);
         document.getElementById('soc').textContent = Math.round(mockData.soc);
 
-        // Update cards
+        // Card values
         document.getElementById('card-voltage').textContent = mockData.voltage.toFixed(1);
         document.getElementById('card-current').textContent = mockData.current.toFixed(2);
         document.getElementById('card-temperature').textContent = mockData.temperature.toFixed(1);
         document.getElementById('card-soc').textContent = Math.round(mockData.soc);
 
-        // Update gauges
+        // Gauge fills
         document.getElementById('voltage-gauge').style.width =
             ((mockData.voltage / 14.4) * 100) + '%';
         document.getElementById('current-gauge').style.width =
@@ -83,69 +83,76 @@
 
         document.getElementById('soc-gauge').style.width = mockData.soc + '%';
 
-        // Update status indicators
-        const chargingStatus = document.getElementById('status-charging');
-        if (mockData.status === 'charging') {
-            chargingStatus.innerHTML = '<span class="dot online"></span> Charging';
-        } else {
-            chargingStatus.innerHTML = '<span class="dot"></span> Discharging';
+        // Status indicators
+        const statusText = document.getElementById('status-text');
+        if (statusText) {
+            statusText.textContent = mockData.status === 'charging' ? 'Charging' : 'Discharging';
         }
 
-        const wifiStatus = document.getElementById('status-wifi');
-        wifiStatus.innerHTML = mockData.wifiConnected ?
-            '<span class="dot online"></span> WiFi Connected' :
-            '<span class="dot"></span> WiFi Disconnected';
-
-        const dbStatus = document.getElementById('status-db');
-        dbStatus.innerHTML = mockData.dbConnected ?
-            '<span class="dot online"></span> Database Connected' :
-            '<span class="dot"></span> Database Disconnected';
+        // Update chart
+        updateChart();
     }
 
-    // Initialize Chart.js
-    let sensorsChart = null;
+    // Chart instance
+    let chart = null;
 
     function initChart() {
         const canvas = document.getElementById('sensorsChart');
         if (!canvas) return;
 
         const ctx = canvas.getContext('2d');
-
-        // Simple chart implementation without Chart.js dependency
         const width = canvas.parentElement.clientWidth - 32;
         const height = 260;
         canvas.width = width;
         canvas.height = height;
 
-        // Store chart reference for updates
-        sensorsChart = {
-            ctx: ctx,
-            width: width,
-            height: height,
-            data: historicalData
-        };
+        chart = { ctx, width, height };
+        drawChart();
+    }
+
+    function updateChart() {
+        if (!chart) return;
+
+        const { ctx, width, height, data } = chart;
+
+        // Add new data point periodically
+        if (Math.random() > 0.7) {
+            const now = new Date();
+            historicalData.labels.push(now.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+            }));
+            historicalData.voltage.push(mockData.voltage);
+            historicalData.current.push(mockData.current);
+            historicalData.temperature.push(mockData.temperature);
+
+            // Keep last 30 points
+            if (historicalData.labels.length > 30) {
+                historicalData.labels.shift();
+                historicalData.voltage.shift();
+                historicalData.current.shift();
+                historicalData.temperature.shift();
+            }
+        }
 
         drawChart();
     }
 
     function drawChart() {
-        if (!sensorsChart) return;
+        if (!chart) return;
 
-        const { ctx, width, height, data } = sensorsChart;
+        const { ctx, width, height, data } = chart;
+        const { labels, voltage, current, temperature } = historicalData;
 
-        // Clear canvas
         ctx.clearRect(0, 0, width, height);
 
-        // Chart area
         const padding = { top: 20, right: 20, bottom: 40, left: 50 };
         const chartWidth = width - padding.left - padding.right;
         const chartHeight = height - padding.top - padding.bottom;
 
-        // Draw grid
+        // Grid
         ctx.strokeStyle = '#2a2a4e';
         ctx.lineWidth = 1;
-
-        // Horizontal grid lines
         for (let i = 0; i <= 4; i++) {
             const y = padding.top + (chartHeight / 4) * i;
             ctx.beginPath();
@@ -154,7 +161,7 @@
             ctx.stroke();
         }
 
-        // Draw data
+        // Draw lines
         const drawLine = (values, color) => {
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
@@ -167,69 +174,60 @@
                 const x = padding.left + (idx / (values.length - 1)) * chartWidth;
                 const y = padding.top + (1 - (val - minVal) / (maxVal - minVal)) * chartHeight;
 
-                if (idx === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
-                }
+                if (idx === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
             });
-
             ctx.stroke();
         };
 
-        // Draw voltage (green)
-        drawLine(data.voltage, '#00d4aa');
+        drawLine(voltage, '#00d4aa');
+        drawLine(current, '#3498db');
+        drawLine(temperature, '#e74c3c');
 
-        // Draw current (blue)
-        drawLine(data.current, '#3498db');
-
-        // Draw temperature (orange)
-        drawLine(data.temperature, '#e74c3c');
-
-        // Draw labels
+        // Labels
         ctx.fillStyle = '#a0a0a0';
-        ctx.font = '12px sans-serif';
+        ctx.font = '11px sans-serif';
         ctx.textAlign = 'center';
 
-        // X-axis labels (show every 5th)
-        data.labels.forEach((label, idx) => {
-            if (idx % 5 === 0 || idx === data.labels.length - 1) {
-                const x = padding.left + (idx / (data.labels.length - 1)) * chartWidth;
+        labels.forEach((label, idx) => {
+            if (idx % 6 === 0 || idx === labels.length - 1) {
+                const x = padding.left + (idx / (labels.length - 1)) * chartWidth;
                 ctx.fillText(label, x, height - 10);
             }
         });
 
-        // Legend
         ctx.textAlign = 'left';
-        ctx.fillText('Voltage (V)', width - 100, 20);
+        ctx.fillText('V', width - 40, 20);
         ctx.fillStyle = '#00d4aa';
-        ctx.fillRect(width - 130, 12, 12, 12);
+        ctx.fillRect(width - 55, 12, 10, 10);
 
+        ctx.fillStyle = '#a0a0a0';
+        ctx.fillText('A', width - 40, 40);
         ctx.fillStyle = '#3498db';
-        ctx.fillText('Current (A)', width - 100, 40);
-        ctx.fillRect(width - 130, 32, 12, 12);
+        ctx.fillRect(width - 55, 32, 10, 10);
 
+        ctx.fillStyle = '#a0a0a0';
+        ctx.fillText('°C', width - 40, 60);
         ctx.fillStyle = '#e74c3c';
-        ctx.fillText('Temp (°C)', width - 100, 60);
-        ctx.fillRect(width - 130, 52, 12, 12);
+        ctx.fillRect(width - 55, 52, 10, 10);
     }
 
-    // Initialize dashboard
+    // Initialize
     function init() {
+        generateInitialData();
         updateDashboard();
         initChart();
 
-        // Simulate live updates every 3 seconds
-        setInterval(() => {
-            updateDashboard();
-            drawChart();
-        }, 3000);
+        // Update intervals
+        setInterval(updateDashboard, 3000);
 
-        // Handle window resize
-        window.addEventListener('resize', drawChart);
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            initChart();
+        });
     }
 
-    // Start when DOM is ready
+    // Start
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
