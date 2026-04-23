@@ -1,6 +1,6 @@
 /**
  * @file sensors.h
- * @brief Header file for sensor functions
+ * @brief Header for sensor functions with signal processing
  * @author Project Contributor
  * @license MIT
  */
@@ -10,22 +10,20 @@
 
 #include <Arduino.h>
 
-class Sensors {
-public:
-    Sensors();
-    void init();
-    float readTemperature();
-    float readVoltage();
-    float readCurrent();
-    float getLastVoltage();
-    float getLastCurrent();
-    float getLastTemperature();
-    float calculateSOC(float voltage);
+// Function declarations
+void sensorsInit();
+float readTemperature();
+float readCurrent();
+float readVoltage();
+float calculateSOC(float voltage);
+void calibrateSensors();
 
-private:
-    float _lastVoltage;
-    float _lastCurrent;
-    float _lastTemperature;
-};
+// Raw read functions (for testing)
+float readRawTemperature();
+float readRawCurrent();
+float readRawVoltage();
+
+// Fault detection
+bool checkSensorFault();
 
 #endif // SENSORS_H

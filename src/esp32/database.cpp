@@ -1,61 +1,69 @@
 /**
  * @file database.cpp
- * @brief Supabase database client for remote metrics storage
+ * @brief Supabase database client with retry logic
  * @author Project Contributor
  * @license MIT
  */
 
 #include "database.h"
-#include <HTTPClient.h>
 
-// WiFi client for HTTP requests
 WiFiClientSecure WiFiClient;
+HTTPClient http;
 
-// Database configuration (set these in config.env or hardcode for testing)
-const char* SUPABASE_URL = "https://your-project-id.supabase.co";
-const char* SUPABASE_ANON_KEY = "your-anon-key";
-
-// Table name
+const char* BASE_URL = "";
+const char* ANON_KEY = "";
 const char* TABLE_NAME = "sensor_readings";
 
-Database::Database() {
-    _connected = false;
-    _lastPostTime = 0;
-}
+bool _connected = false;
+unsigned long _lastPostTime = 0;
+int _retryCount = 0;
+const int MAX_RETRIES = 3;
 
-void Database::init(const char* url, const char* key) {
-    SUPABASE_URL = url;
-    SUPABASE_ANON_KEY = key;
+// Initialize database connection
+void databaseInit(const char* url, const char* key) {
+    BASE_URL = url;
+    ANON_KEY = key;
     _connected = true;
+    _retryCount = 0;
+    Serial.println("Database client initialized");
 }
 
-/**
- * @brief Send sensor data to Supabase
- * @param voltage Battery voltage
- * @param current Battery current
- * @param temperature Battery temperature
- * @param batteryStatus "charging", "discharging", or "full"
- * @return HTTP response code (negative = error)
- */
-int Database::sendReading(float voltage, float current, float temperature, const char* batteryStatus) {
-    if (!_connected) {
-        return -1;
+// Send reading to Supabase with retry logic
+int databaseSendReading(float voltage, float current, float temperature, const char* batteryStatus) {
+    if (!_connected) return -1;
+
+    _retryCount = 0;
+    int httpCode = -1;
+
+    while (_retryCount < MAX_RETRIES) {
+        httpCode = sendPost(voltage, current, temperature, batteryStatus);
+
+        if (httpCode > 0) {
+            _lastPostTime = millis();
+            return httpCode;
+        }
+
+        _retryCount++;
+        delay(100 * _retryCount);  // Backoff
     }
 
-    HTTPClient http;
-    WiFiClient client;
-    
-    // Build the REST API URL
-    String url = String(SUPABASE_URL) + "/rest/v1/" + TABLE_NAME;
-    
-    // Configure HTTP client
-    http.begin(client, url);
+    Serial.print("DB: Failed after ");
+    Serial.print(MAX_RETRIES);
+    Serial.println(" retries");
+    return httpCode;
+}
+
+// Internal POST function
+int sendPost(float voltage, float current, float temperature, const char* batteryStatus) {
+    String url = String(BASE_URL) + "/rest/v1/" + TABLE_NAME;
+
+    http.begin(WiFiClient, url);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("apikey", SUPABASE_ANON_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
+    http.addHeader("apikey", ANON_KEY);
+    http.addHeader("Authorization", String("Bearer ") + ANON_KEY);
     http.addHeader("Prefer", "return=minimal");
 
-    // Create JSON payload
+    // JSON payload
     String payload = "{";
     payload += "\"voltage\":" + String(voltage, 2) + ",";
     payload += "\"current\":" + String(current, 2) + ",";
@@ -63,35 +71,28 @@ int Database::sendReading(float voltage, float current, float temperature, const
     payload += "\"battery_status\":\"" + String(batteryStatus) + "\"";
     payload += "}";
 
-    // Send POST request
-    int httpCode = http.POST(payload);
-
-    // Clean up
+    int code = http.POST(payload);
     http.end();
 
-    return httpCode;
+    return code;
 }
 
-/**
- * @brief Check database connection status
- * @return Connection status
- */
-bool Database::isConnected() {
+// Check connection status
+bool databaseConnected() {
     return _connected;
 }
 
-/**
- * @brief Get last post timestamp
- * @return Last successful post time
- */
-unsigned long Database::getLastPostTime() {
+// Get last post time
+unsigned long getLastPostTime() {
     return _lastPostTime;
 }
 
-/**
- * @brief Set connection status
- * @param connected Connection status
- */
-void Database::setConnected(bool connected) {
-    _connected = connected;
+// Set connection status
+void setDatabaseConnected(bool status) {
+    _connected = status;
+}
+
+// Get retry count
+int getRetryCount() {
+    return _retryCount;
 }

@@ -1,126 +1,190 @@
 /**
  * @file lcd_display.cpp
- * @brief LCD 16x2 display interface
+ * @brief LCD 16x2 display interface with optimized refresh
  * @author Project Contributor
  * @license MIT
  */
 
 #include "lcd_display.h"
 
-// LCD pin definitions (I2C)
-// SDA -> GPIO 21
-// SCL -> GPIO 22
-LiquidCrystal_I2C lcd(0x27, 16, 2);  // I2C address 0x27, 16 cols, 2 rows
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-LCDDisplay::LCDDisplay() {
-    _lastUpdateTime = 0;
-}
+unsigned long lastUpdateTime = 0;
+const unsigned long UPDATE_INTERVAL = 2000;  // Update LCD every 2 seconds
 
-void LCDDisplay::init() {
-    lcd.begin(21, 22);  // SDA=21, SCL=22 for ESP32
+bool lcdInitialized = false;
+
+// Last displayed values (to avoid flicker)
+float lastVoltage = 0;
+float lastCurrent = 0;
+float lastTemp = 0;
+float lastSoc = 0;
+int displayPage = 0;
+unsigned long pageChangeTime = 0;
+const unsigned long PAGE_INTERVAL = 3000;  // Rotate pages every 3 seconds
+
+// Initialize LCD
+void lcdInit() {
+    lcd.begin(21, 22);
     lcd.backlight();
     lcd.clear();
+    
     lcd.setCursor(0, 0);
-    lcd.print("Li-ion BMS Init");
+    lcd.print("Li-ion PMS Init");
     delay(1000);
-    lcd.clear();
+    
+    lcdInitialized = true;
+    pageChangeTime = millis();
+    Serial.println("LCD display initialized");
 }
 
-/**
- * @brief Display battery status on LCD
- * @param voltage Battery voltage
- * @param current Battery current
- * @param temperature Battery temperature
- * @param soc State of charge percentage
- */
-void LCDDisplay::displayStatus(float voltage, float current, float temperature, float soc) {
-    // First line: Voltage and Current
-    lcd.setCursor(0, 0);
-    lcd.print("V:");
-    lcd.print(voltage, 1);
-    lcd.print("V ");
-    lcd.print("I:");
-    lcd.print(current, 1);
-    lcd.print("A ");
+// Display main status (voltage, current, temp, SOC)
+void displayStatus(float voltage, float current, float temperature, float soc) {
+    unsigned long now = millis();
+    
+    // Check if we should update
+    if (now - lastUpdateTime < UPDATE_INTERVAL) {
+        // Only update on significant change
+        if (abs(voltage - lastVoltage) < 0.1 && 
+            abs(current - lastCurrent) < 0.1 &&
+            abs(temperature - lastTemp) < 1.0) {
+            return;
+        }
+    }
+    
+    lastUpdateTime = now;
+    lastVoltage = voltage;
+    lastCurrent = current;
+    lastTemp = temperature;
+    lastSoc = soc;
 
-    // Second line: Temperature and SOC
-    lcd.setCursor(0, 1);
-    lcd.print("T:");
-    lcd.print(temperature, 0);
-    lcd.print((char)223);  // Degree symbol
-    lcd.print("C ");
-    lcd.print("SOC:");
-    lcd.print(soc, 0);
-    lcd.print("%");
+    // Page 0: Voltage and Current
+    if (displayPage == 0) {
+        lcd.setCursor(0, 0);
+        lcd.print("V:");
+        lcd.print(voltage, 1);
+        lcd.print("V ");
+        lcd.print("I:");
+        lcd.print(current, 1);
+        lcd.print("A ");
+        
+        lcd.setCursor(0, 1);
+        lcd.print("T:");
+        lcd.print(temperature, 0);
+        lcd.print((char)223);
+        lcd.print("C SOC:");
+        lcd.print(soc, 0);
+        lcd.print("%");
+    }
+    
+    // Fill remaining spaces with spaces to clear old values
+    lcd.print("                ");
 }
 
-/**
- * @brief Display charging status
- * @param isCharging True if charger connected
- */
-void LCDDisplay::displayChargingStatus(bool isCharging) {
-    lcd.setCursor(10, 1);
+// Display charging status
+void displayChargingStatus(bool isCharging) {
+    lcd.setCursor(14, 0);
     if (isCharging) {
-        lcd.print("CHG ");
+        lcd.print("CHG");
     } else {
-        lcd.print("DIS ");
+        lcd.print("DIS");
     }
 }
 
-/**
- * @brief Display alert message
- * @param message Alert text (max 16 chars)
- */
-void LCDDisplay::displayAlert(const char* message) {
+// Display alert message
+void displayAlert(const char* message) {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("ALERT:");
     lcd.setCursor(0, 1);
     lcd.print(message);
+    // Ensure cursor doesn't stick
+    lcd.cursor();
+    delay(100);
+    lcd.noCursor();
 }
 
-/**
- * @brief Clear LCD screen
- */
-void LCDDisplay::clear() {
+// Clear LCD
+void lcdClear() {
     lcd.clear();
 }
 
-/**
- * @brief Display startup screen
- */
-void LCDDisplay::displayStartup() {
+// Display startup screen
+void displayStartup() {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Li-ion Battery");
     lcd.setCursor(0, 1);
-    lcd.print("Monitoring System");
+    lcd.print("Monitor System");
     delay(2000);
     lcd.clear();
 }
 
-/**
- * @brief Display WiFi connection status
- * @param connected Connection status
- */
-void LCDDisplay::displayWiFiStatus(bool connected) {
+// Display WiFi status
+void displayWiFiStatus(bool connected) {
     lcd.setCursor(12, 0);
     if (connected) {
-        lcd.print("WiFi");
+        lcd.print("WiF");
     } else {
         lcd.print("---");
     }
 }
 
-/**
- * @brief Display DB connection status
- * @param connected Connection status
- */
-void LCDDisplay::displayDBStatus(bool connected) {
+// Display DB status
+void displayDBStatus(bool connected) {
     lcd.setCursor(12, 1);
     if (connected) {
         lcd.print("DB");
     } else {
         lcd.print("--");
     }
+}
+
+// Display rotating information pages
+void displayRotating(float voltage, float current, float temperature, float soc, bool charging) {
+    unsigned long now = millis();
+    
+    // Change page every 3 seconds
+    if (now - pageChangeTime > PAGE_INTERVAL) {
+        displayPage = (displayPage + 1) % 3;
+        pageChangeTime = now;
+        lcd.clear();
+    }
+    
+    switch(displayPage) {
+        case 0:  // Quick status
+            displayStatus(voltage, current, temperature, soc);
+            break;
+            
+        case 1:  // Battery info
+            lcd.setCursor(0, 0);
+            lcd.print("Battery Monitor");
+            lcd.setCursor(0, 1);
+            if (charging) {
+                lcd.print("Mode: Charging ");
+            } else {
+                lcd.print("Mode: Using   ");
+            }
+            break;
+            
+        case 2:  // System info
+            lcd.setCursor(0, 0);
+            lcd.print("Li-ion_PMS v2.0");
+            lcd.setCursor(0, 1);
+            lcd.print("ESP32 IoT System");
+            break;
+    }
+}
+
+// Display with animation
+void displayAnimated(float voltage, float current, float temperature, float soc) {
+    // Simple loading animation for busy state
+    static int animFrame = 0;
+    const char animChars[] = {'|', '/', '-', '\\'};
+    
+    lcd.setCursor(15, 1);
+    lcd.print(animChars[animFrame]);
+    animFrame = (animFrame + 1) % 4;
+    
+    displayStatus(voltage, current, temperature, soc);
 }

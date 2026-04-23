@@ -1,30 +1,28 @@
 /**
  * @file main.ino
- * @brief Li-ion Battery Performance Monitoring System (Li-ion_PMS)
+ * @brief Li-ion Battery Performance Monitoring System v2.0
  * @author Harish Krishna K, Jayaram H, Navin Y
  * @license MIT
  *
- * Hardware: NodeMCU ESP32
- * Sensors: LM35 (temperature), ACS712 (current), Voltage Divider
- * Display: 16x2 LCD (I2C)
- * Storage: Supabase PostgreSQL (remote)
- *
- * Pin Configuration:
- * - GPIO 34: LM35 Temperature Sensor
- * - GPIO 39: Voltage Divider
- * - GPIO 36: ACS712 Current Sensor
- * - GPIO 32: Charger Detection
- * - GPIO 27: Relay Control
- * - GPIO 26: BLDC Fan Control
- * - GPIO 21: LCD SDA
- * - GPIO 22: LCD SCL
+ * Hardware: NodeMCU ESP32 + LM35 + ACS712 + 16x2 LCD I2C
+ * Cloud: Supabase PostgreSQL
+ * 
+ * Features:
+ * - Non-blocking architecture (millis timers)
+ * - Signal processing (oversampling + moving average)
+ * - PID fan control
+ * - WiFi Manager (web portal)
+ * - OTA updates
+ * - Deep sleep power saving
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <LiquidCrystal_I2C.h>
+#include <WiFiManager.h>
+#include <ArduinoOTA.h>
 
-// Include custom libraries
+// Custom includes
 #include "sensors.h"
 #include "lcd_display.h"
 #include "relay_control.h"
@@ -34,52 +32,39 @@
 // CONFIGURATION
 // ============================================================================
 
-// WiFi credentials - UPDATE THESE
-const char* WIFI_SSID = "YourNetworkName";
-const char* WIFI_PASSWORD = "YourPassword";
+// WiFi (handled by WiFi Manager - credentials stored in flash)
+char WIFI_SSID[32] = "";
+char WIFI_PASSWORD[32] = "";
 
-// Supabase configuration - UPDATE THESE (or use config.env)
-const char* SUPABASE_URL = "https://your-project-id.supabase.co";
+// Supabase configuration
+const char* SUPABASE_URL = "https://your-project.supabase.co";
 const char* SUPABASE_ANON_KEY = "your-anon-key";
-
-// Device name
 const char* DEVICE_NAME = "Li-ion_PMS_001";
 
 // Battery thresholds
-const float CHARGING_THRESHOLD = 12.9;    // Stop charging at this voltage
-const float DISCHARGING_THRESHOLD = 8.0;  // Cutoff voltage
+const float CHARGING_FULL = 12.9;
+const float DISCHARGING_CUTOFF = 8.0;
 
-// Timing
-const unsigned long POST_INTERVAL = 5000;  // Post to DB every 5 seconds
-const unsigned long DISPLAY_INTERVAL = 1500; // Update display every 1.5 seconds
+// Timing (millis-based - non-blocking)
+const unsigned long SENSOR_READ_INTERVAL = 1000;    // Read sensors every 1 second
+const unsigned long DISPLAY_INTERVAL = 2000;      // Update LCD every 2 seconds
+const unsigned long DB_POST_INTERVAL = 5000;    // Post to DB every 5 seconds
+const unsigned long SLEEP_INTERVAL = 30000;        // Sleep after 30 seconds of inactivity
 
-// ============================================================================
-// GLOBAL OBJECTS
-// ============================================================================
+// Power management
+bool deepSleepEnabled = true;
+unsigned long lastActivityTime = 0;
 
-Sensors sensors;
-LCDDisplay display;
-RelayControl relay;
-Database database;
-
-// ============================================================================
-// GLOBAL VARIABLES
-// ============================================================================
-
-bool chargerConnected = false;
-unsigned long lastDisplayUpdate = 0;
-unsigned long lastDBPost = 0;
+// Mode flags
+bool normalMode = true;
+bool chargingMode = false;
 bool wifiConnected = false;
 bool dbConnected = false;
 
-// ============================================================================
-// PROTOTYPES
-// ============================================================================
-
-void connectWiFi();
-void checkChargerStatus();
-void handleBatteryManagement(float voltage, float temperature);
-
+// Task timers
+unsigned long lastSensorRead = 0;
+unsigned long lastDisplayUpdate = 0;
+unsigned long lastDbPost = 0;
 
 // ============================================================================
 // SETUP
@@ -88,74 +73,132 @@ void handleBatteryManagement(float voltage, float temperature);
 void setup() {
     Serial.begin(115200);
     Serial.println();
-    Serial.println("=== Li-ion Battery Performance Monitoring System ===");
-    Serial.println();
+    Serial.println("=== Li-ion Battery Monitoring System v2.0 ===");
+    Serial.println("Features: Non-blocking, PID control, WiFi Manager, OTA");
 
     // Initialize components
-    sensors.init();
-    display.init();
-    relay.init();
-    database.init(SUPABASE_URL, SUPABASE_ANON_KEY);
+    sensorsInit();
+    lcdInit();
+    relayInit();
+    databaseInit(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Display startup message
-    display.displayStartup();
+    // Display startup
+    displayStartup();
 
-    // Connect to WiFi
-    connectWiFi();
+    // Initialize WiFi Manager
+    WiFiManager wifiManager;
+    wifiManager.setTimeout(60);
+    
+    // Try to connect, or start AP
+    if (!wifiManager.autoConnect("Li-ion_PMS_AP")) {
+        Serial.println("Failed to connect - starting AP");
+        lcdClear();
+        lcd.print("AP Mode");
+    }
+
+    // Connected
+    wifiConnected = (WiFi.status() == WL_CONNECTED);
+    displayWiFiStatus(wifiConnected);
+
+    if (wifiConnected) {
+        Serial.print("Connected! IP: ");
+        Serial.println(WiFi.localIP());
+    }
+
+    // Initialize OTA
+    ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH) {
+            type = "sketch";
+        } else {
+            type = "filesystem";
+        }
+        Serial.println("Start updating " + type);
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nEnd");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Progress: %u%%\r", (progress / (total / 100));
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+    ArduinoOTA.begin();
+
+    // Update activity time
+    lastActivityTime = millis();
 
     Serial.println("Setup complete!");
     Serial.println();
 }
 
 // ============================================================================
-// MAIN LOOP
+// MAIN LOOP (Non-blocking)
 // ============================================================================
 
 void loop() {
-    // Read sensor data
-    float voltage = sensors.readVoltage();
-    float current = sensors.readCurrent();
-    float temperature = sensors.readTemperature();
-    float soc = sensors.calculateSOC(voltage);
+    // Handle OTA updates
+    ArduinoOTA.handle();
 
-    // Check charger status
-    checkChargerStatus();
+    unsigned long now = millis();
 
-    // Battery management (relay and fan control)
-    handleBatteryManagement(voltage, temperature);
-
-    // Update display
-    unsigned long currentTime = millis();
-    if (currentTime - lastDisplayUpdate >= DISPLAY_INTERVAL) {
-        display.displayStatus(voltage, current, temperature, soc);
-        display.displayChargingStatus(chargerConnected);
-        display.displayWiFiStatus(wifiConnected);
-        display.displayDBStatus(dbConnected);
-        lastDisplayUpdate = currentTime;
+    // Wake from deep sleep on USB activity or timer
+    if (Serial.available()) {
+        lastActivityTime = now;
     }
 
-    // Post to Supabase
-    if (currentTime - lastDBPost >= POST_INTERVAL && wifiConnected) {
-        const char* status = chargerConnected ? "charging" : "discharging";
-        int result = database.sendReading(voltage, current, temperature, status);
-
-        if (result > 0) {
-            dbConnected = true;
-            Serial.print("DB: Posted - V:");
-            Serial.print(voltage);
-            Serial.print(" I:");
-            Serial.print(current);
-            Serial.print(" T:");
-            Serial.println(temperature);
-        } else {
-            dbConnected = false;
-            Serial.print("DB Error: ");
-            Serial.println(result);
-        }
-        lastDBPost = currentTime;
+    // ========== SENSOR READING ==========
+    if (now - lastSensorRead >= SENSOR_READ_INTERVAL) {
+        readSensors();
+        lastSensorRead = now;
+        lastActivityTime = now;
     }
 
-    // Log to serial
+    // ========== LCD UPDATE ==========
+    if (now - lastDisplayUpdate >= DISPLAY_INTERVAL) {
+        updateDisplay();
+        lastDisplayUpdate = now;
+    }
+
+    // ========== DATABASE POST ==========
+    if (now - lastDbPost >= DB_POST_INTERVAL && wifiConnected) {
+        postToDatabase();
+        lastDbPost = now;
+    }
+
+    // ========== POWER MANAGEMENT ==========
+    if (deepSleepEnabled && (now - lastActivityTime > SLEEP_INTERVAL)) {
+        enterDeepSleep();
+    }
+
+    // Small delay to prevent watchdog
+    delay(10);
+}
+
+// ============================================================================
+// FUNCTIONS
+// ============================================================================
+
+void readSensors() {
+    // Read all sensors with filtering
+    float voltage = readVoltage();
+    float current = readCurrent();
+    float temperature = readTemperature();
+    float soc = calculateSOC(voltage);
+
+    // Determine charging mode
+    chargingMode = checkChargerStatus();
+
+    // Battery management
+    manageBattery(voltage, temperature);
+
+    // Serial logging
     Serial.print("V:");
     Serial.print(voltage);
     Serial.print(" I:");
@@ -164,77 +207,83 @@ void loop() {
     Serial.print(temperature);
     Serial.print(" SOC:");
     Serial.print(soc);
-    Serial.print(" Chg:");
-    Serial.println(chargerConnected ? "Yes" : "No");
+    Serial.print(" | ");
+    Serial.println(chargingMode ? "Charging" : "Discharging");
 }
 
+void updateDisplay() {
+    float voltage = readVoltage();
+    float current = readCurrent();
+    float temperature = readTemperature();
+    float soc = calculateSOC(voltage);
 
-// ============================================================================
-// FUNCTIONS
-// ============================================================================
+    // Use rotating display for more info
+    displayRotating(voltage, current, temperature, soc, chargingMode);
+}
 
-/**
- * @brief Connect to WiFi
- */
-void connectWiFi() {
-    Serial.print("Connecting to WiFi: ");
-    Serial.println(WIFI_SSID);
+void postToDatabase() {
+    float voltage = readVoltage();
+    float current = readCurrent();
+    float temperature = readTemperature();
 
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    const char* status = chargingMode ? "charging" : "discharging";
+    int result = databaseSendReading(voltage, current, temperature, status);
 
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-    }
+    dbConnected = (result > 0);
 
-    if (WiFi.status() == WL_CONNECTED) {
-        wifiConnected = true;
-        Serial.println();
-        Serial.print("WiFi connected! IP: ");
-        Serial.println(WiFi.localIP());
+    displayDBStatus(dbConnected);
+
+    if (result > 0) {
+        Serial.println("DB: Posted successfully");
     } else {
-        wifiConnected = false;
-        Serial.println();
-        Serial.println("WiFi connection failed!");
+        Serial.print("DB Error: ");
+        Serial.println(result);
     }
 }
 
-/**
- * @brief Check charger connection status
- */
-void checkChargerStatus() {
-    // Using GPIO 32 with internal pull-up
-    // Charger pulls this pin LOW when connected
-    chargerConnected = (digitalRead(32) == LOW);
-}
+void manageBattery(float voltage, float temperature) {
+    // Control fan with PID
+    controlFan(temperature, chargingMode, true);
 
-/**
- * @brief Handle battery management (charging/discharging relay)
- */
-void handleBatteryManagement(float voltage, float temperature) {
-    // Control fan based on temperature
-    relay.controlFan(temperature, chargerConnected);
-
-    // Battery relay control
-    if (chargerConnected) {
-        // Charging mode
-        if (voltage < CHARGING_THRESHOLD && voltage > DISCHARGING_THRESHOLD) {
-            relay.setRelay(true);  // Enable charging
-        } else if (voltage >= CHARGING_THRESHOLD) {
-            relay.setRelay(true);  // Keep connected until removed
-            display.displayAlert("FULL");
+    // Relay control
+    if (chargingMode) {
+        if (voltage < CHARGING_FULL && voltage > DISCHARGING_CUTOFF) {
+            setRelay(true);
+        } else if (voltage >= CHARGING_FULL) {
+            setRelay(true);
+            displayAlert("FULL");
         } else {
-            relay.setRelay(true);  // Keep charging if low
+            setRelay(true);
         }
     } else {
-        // Discharging mode
-        if (voltage < DISCHARGING_THRESHOLD) {
-            relay.setRelay(false);  // Cutoff
-            display.displayAlert("LOW BATT");
+        if (voltage < DISCHARGING_CUTOFF) {
+            setRelay(false);
+            displayAlert("LOW");
         } else {
-            relay.setRelay(false);  // Allow discharge
+            setRelay(false);
         }
     }
+}
+
+bool checkChargerStatus() {
+    pinMode(32, INPUT_PULLUP);
+    return (digitalRead(32) == LOW);
+}
+
+void enterDeepSleep() {
+    Serial.println("Entering deep sleep...");
+    lcdClear();
+    lcd.print("Sleeping...");
+    delay(500);
+
+    // Turn off peripherals
+    digitalWrite(26, LOW);  // Fan off
+    digitalWrite(27, LOW);  // Relay off
+
+    // Configure wake sources
+    esp_sleep_enable_gpio_wakeup();
+    esp_sleep_enable_timer_wakeup(60 * 1000000);  // 60 seconds
+
+    // Enter deep sleep
+    esp_deep_sleep_start();
 }

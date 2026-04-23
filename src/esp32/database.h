@@ -1,6 +1,6 @@
 /**
  * @file database.h
- * @brief Header file for Supabase database client
+ * @brief Header for Supabase database client
  * @author Project Contributor
  * @license MIT
  */
@@ -12,18 +12,12 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-class Database {
-public:
-    Database();
-    void init(const char* url, const char* key);
-    int sendReading(float voltage, float current, float temperature, const char* batteryStatus);
-    bool isConnected();
-    unsigned long getLastPostTime();
-    void setConnected(bool connected);
-
-private:
-    bool _connected;
-    unsigned long _lastPostTime;
-};
+// Function declarations
+void databaseInit(const char* url, const char* key);
+int databaseSendReading(float voltage, float current, float temperature, const char* batteryStatus);
+bool databaseConnected();
+unsigned long getLastPostTime();
+void setDatabaseConnected(bool status);
+int getRetryCount();
 
 #endif // DATABASE_H

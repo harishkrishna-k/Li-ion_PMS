@@ -1,6 +1,6 @@
 /**
  * @file relay_control.h
- * @brief Header file for relay and fan control
+ * @brief Header for relay and fan control
  * @author Project Contributor
  * @license MIT
  */
@@ -10,20 +10,20 @@
 
 #include <Arduino.h>
 
-class RelayControl {
-public:
-    RelayControl();
-    void init();
-    void setRelay(bool enable);
-    bool getRelay();
-    void controlFan(float temperature, bool isCharging);
-    bool getFan();
-    void fanOff();
-    void fanOn();
+// Function declarations
+void relayInit();
+void setRelay(bool enable);
+bool getRelay();
+void controlFan(float temperature, bool isCharging, bool usePid = false);
+void controlFanSimple(float temperature, bool isCharging);
+void controlFanPID(float temperature);
+bool getFan();
+int getFanPwm();
+void fanOff();
+void fanOn(int pwm);
 
-private:
-    bool _relayState;
-    bool _fanState;
-};
+// PID configuration
+void setPidGains(float kp, float ki, float kd);
+void setTargetTemp(float temp);
 
 #endif // RELAY_CONTROL_H
