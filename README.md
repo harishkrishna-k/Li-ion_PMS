@@ -13,7 +13,6 @@ A comprehensive IoT-based battery monitoring system built with ESP32 and Supabas
 - **Automatic Cooling**: Temperature-based fan control
 - **Remote Storage**: Supabase PostgreSQL cloud database
 - **WiFi Connectivity**: NodeMCU ESP32 with built-in WiFi
-- **Portfolio Dashboard**: Responsive web interface
 
 ## Hardware Components
 
@@ -160,13 +159,12 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 - [Harish Krishna K](https://github.com/harishkrishna-k)
 - [Jayaram H](https://github.com)
-- [Navin Y](https://github.com)
 
 ## Acknowledgments
 
-- University College of Engineering
+- University College of Engineering, Anna University, Trichy.
 - Department of Mechanical Engineering
-- Project Guide: Dr. M. Chandrasekar
+- Project Guide: [Dr. M. Chandrasekar](https://scholar.google.com/citations?user=_s3LfjcAAAAJ&hl=en)
 
 ---
 
