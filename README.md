@@ -45,7 +45,7 @@ GPIO 22 → LCD SCL (I2C)
 ### Prerequisites
 
 - NodeMCU ESP32
-- Arduino IDE with ESP32 board support
+- Arduino IDE
 - Supabase account (free tier)
 
 ### Installation
