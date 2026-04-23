@@ -1,229 +1,159 @@
 /**
  * @file sensors.cpp
- * @brief Advanced sensor reading functions with signal processing
+ * @brief Sensor processing with proper encapsulation
  * @author Project Contributor
  * @license MIT
+ * 
+ * Note: This implementation uses simple arrays for clarity.
+ * For production, consider using ESP-IDF's filter component.
  */
 
 #include "sensors.h"
 
-// Analog pin definitions
+// ============================================================================
+// Configuration
+// ============================================================================
+
 const int TEMP_SENSOR_PIN = 34;
 const int VOLTAGE_SENSOR_PIN = 39;
 const int CURRENT_SENSOR_PIN = 36;
 
-// Voltage divider resistors
 const float R1 = 30000.0;
 const float R2 = 7500.0;
-
-// ADC reference voltage
-const float ADC_REF_VOLTAGE = 33;
-
-// ACS712 calibration
+const float ADC_REF_VOLTAGE = 3.3;
 const float ACS712_SENSITIVITY = 185.0;
 
-// Filter sample size
-const int FILTER_SIZE = 10;
+// ============================================================================
+// Moving Average Filter Class Implementation
+// ============================================================================
 
-// Filter buffers
-float tempBuffer[FILTER_SIZE];
-float voltageBuffer[FILTER_SIZE];
-float currentBuffer[FILTER_SIZE];
+MovingAverageFilter::MovingAverageFilter(int size) : size(size), index(0), initialized(false) {
+    buffer = new float[size];
+    for (int i = 0; i < size; i++) buffer[i] = 0;
+}
 
-// Filter indices
-int tempIndex = 0;
-int voltageIndex = 0;
-int currentIndex = 0;
+MovingAverageFilter::~MovingAverageFilter() {
+    delete[] buffer;
+}
 
-// Filter initialized flags
-bool tempFilterInit = false;
-bool voltageFilterInit = false;
-bool currentFilterInit = false;
+float MovingAverageFilter::update(float value) {
+    buffer[index] = value;
+    index = (index + 1) % size;
+    if (!initialized && index == 0) initialized = true;
+    
+    return getAverage();
+}
 
-// Calibration offsets
-float voltageOffset = 0.0;
-float currentOffset = 0.0;
-float tempOffset = 0.0;
+float MovingAverageFilter::getAverage() {
+    int count = initialized ? size : index;
+    if (count == 0) return 0;
+    
+    float sum = 0;
+    for (int i = 0; i < count; i++) sum += buffer[i];
+    return sum / count;
+}
 
-// Initialize sensor system
-void sensorsInit() {
+void MovingAverageFilter::reset() {
+    for (int i = 0; i < size; i++) buffer[i] = 0;
+    index = 0;
+    initialized = false;
+}
+
+// ============================================================================
+// Global Sensor Object
+// ============================================================================
+
+Sensors::Sensors() 
+    : tempFilter(10)
+    , voltageFilter(10)
+    , currentFilter(10)
+    , voltageOffset(0.0f)
+    , currentOffset(0.0f)
+    , tempOffset(0.0f) {}
+
+void Sensors::init() {
     pinMode(TEMP_SENSOR_PIN, INPUT);
     pinMode(VOLTAGE_SENSOR_PIN, INPUT);
     pinMode(CURRENT_SENSOR_PIN, INPUT);
 
-    // Configure ESP32 ADC
     analogReadResolution(12);
     analogSetAttenuation(ADC_0_3V);
 
-    // Initialize filter buffers
-    for (int i = 0; i < FILTER_SIZE; i++) {
-        tempBuffer[i] = 0;
-        voltageBuffer[i] = 0;
-        currentBuffer[i] = 0;
-    }
-
-    Serial.println("Sensors initialized with oversampling filter");
+    Serial.println("Sensors initialized (simple averaging)");
 }
 
-// Moving average filter
-float movingAverage(float newValue, float* buffer, int& index, int size) {
-    buffer[index] = newValue;
-    index = (index + 1) % size;
-    
-    float sum = 0;
-    for (int i = 0; i < size; i++) {
-        sum += buffer[i];
-    }
-    return sum / size;
+float Sensors::readTemperature() {
+    int raw = analogRead(TEMP_SENSOR_PIN);
+    float voltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    float temperature = voltage * 100.0f + tempOffset;
+    return tempFilter.update(temperature);
 }
 
-// Oversampling ADC (32 samples for better resolution)
-int oversampleADC(int pin, int samples = 32) {
-    long sum = 0;
-    for (int i = 0; i < samples; i++) {
-        sum += analogRead(pin);
-    }
-    // Average and shift for oversampling (divide by 32 gives same result as input / 32)
-    // But we want to add extra bits to resolution
-    // 32 samples = 5 extra bits of resolution (log2(32) = 5)
-    return sum >> 5;  // Divide by 32
+float Sensors::readVoltage() {
+    int raw = analogRead(VOLTAGE_SENSOR_PIN);
+    float adcVoltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    float actualVoltage = adcVoltage * ((R1 + R2) / R2) + voltageOffset;
+    return voltageFilter.update(actualVoltage);
 }
 
-// Read temperature from LM35 with filtering
-float readTemperature() {
-    int rawValue = oversampleADC(TEMP_SENSOR_PIN, 32);
-    
-    // Convert ADC to voltage (10mV per degree Celsius)
-    float voltage = (rawValue / 4095.0) * ADC_REF_VOLTAGE;
-    float temperature = voltage * 100.0;
-
-    // Apply calibration offset
-    temperature += tempOffset;
-
-    // Apply moving average filter
-    temperature = movingAverage(temperature, tempBuffer, tempIndex, FILTER_SIZE);
-
-    return temperature;
-}
-
-// Read voltage from divider with filtering
-float readVoltage() {
-    int rawValue = oversampleADC(VOLTAGE_SENSOR_PIN, 32);
-
-    // Convert ADC to voltage
-    float adcVoltage = (rawValue / 4095.0) * ADC_REF_VOLTAGE;
-    
-    // Apply voltage divider formula
-    float actualVoltage = adcVoltage * ((R1 + R2) / R2);
-
-    // Apply calibration offset
-    actualVoltage += voltageOffset;
-
-    // Apply moving average filter
-    actualVoltage = movingAverage(actualVoltage, voltageBuffer, voltageIndex, FILTER_SIZE);
-
-    return actualVoltage;
-}
-
-// Read current from ACS712 with filtering
-float readCurrent() {
-    int rawValue = oversampleADC(CURRENT_SENSOR_PIN, 32);
-
-    // Convert ADC to voltage
-    float voltage = (rawValue / 4095.0) * ADC_REF_VOLTAGE;
-
-    // Calculate current (subtract 2.5V offset for bidirectional)
-    float current = (voltage - 2.5) / (ACS712_SENSITIVITY / 1000.0);
-
-    // Apply calibration offset
+float Sensors::readCurrent() {
+    int raw = analogRead(CURRENT_SENSOR_PIN);
+    float voltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    float current = (voltage - 2.5f) / (ACS712_SENSITIVITY / 1000.0f);
+    if (current < 0.01f) current = 0;
     current += currentOffset;
-
-    // Handle negative current (discharge)
-    if (current < 0.01) {
-        current = 0;
-    }
-
-    // Apply moving average filter
-    current = movingAverage(current, currentBuffer, currentIndex, FILTER_SIZE);
-
-    return current;
+    return currentFilter.update(current);
 }
 
-// Calculate State of Charge
-float calculateSOC(float voltage) {
-    const float MAX_VOLTAGE = 12.9;
-    const float MIN_VOLTAGE = 8.0;
-
-    float soc = ((voltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100.0;
-
-    if (soc > 100.0) soc = 100.0;
-    if (soc < 0.0) soc = 0.0;
-
-    return soc;
+float Sensors::calculateSOC(float voltage) {
+    const float MAX_VOLTAGE = 12.9f;
+    const float MIN_VOLTAGE = 8.0f;
+    float soc = ((voltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100.0f;
+    return constrain(soc, 0.0f, 100.0f);
 }
 
-// Calibration routine
-void calibrateSensors() {
-    Serial.println("Starting sensor calibration...");
-    Serial.println("Ensure no load on system for 5 seconds...");
-
-    // Wait for settling
-    delay(5000);
-
-    // Capture offset values (no load condition)
-    float sumVoltage = 0;
-    float sumCurrent = 0;
-    float sumTemp = 0;
-    int samples = 100;
-
+void Sensors::calibrate() {
+    Serial.println("Calibration: waiting 3 seconds for stabilization...");
+    delay(3000);
+    
+    float sumV = 0, sumC = 0, sumT = 0;
+    const int samples = 20;
+    
     for (int i = 0; i < samples; i++) {
-        sumVoltage += readVoltage();
-        sumCurrent += readCurrent();
-        sumTemp += readTemperature();
-        delay(50);
+        sumV += readRawVoltage();
+        sumC += readRawCurrent();
+        sumT += readRawTemperature();
+        delay(100);
     }
-
-    voltageOffset = -(sumVoltage / samples);
-    currentOffset = -(sumCurrent / samples);
-    tempOffset = -(sumTemp / samples);
-
-    Serial.println("Calibration complete!");
-    Serial.print("Voltage Offset: ");
-    Serial.println(voltageOffset);
-    Serial.print("Current Offset: ");
-    Serial.println(currentOffset);
-    Serial.print("Temperature Offset: ");
-    Serial.println(tempOffset);
+    
+    voltageOffset = -(sumV / samples);
+    currentOffset = -(sumC / samples);
+    tempOffset = -(sumT / samples);
+    
+    Serial.println("Calibration complete");
 }
 
-// Read raw values without filter (for testing)
-float readRawTemperature() {
-    int rawValue = analogRead(TEMP_SENSOR_PIN);
-    float voltage = (rawValue / 4095.0) * ADC_REF_VOLTAGE;
-    return voltage * 100.0;
+float Sensors::readRawTemperature() {
+    int raw = analogRead(TEMP_SENSOR_PIN);
+    return (raw / 4095.0f) * ADC_REF_VOLTAGE * 100.0f;
 }
 
-float readRawVoltage() {
-    int rawValue = analogRead(VOLTAGE_SENSOR_PIN);
-    float adcVoltage = (rawValue / 4095.0) * ADC_REF_VOLTAGE;
+float Sensors::readRawVoltage() {
+    int raw = analogRead(VOLTAGE_SENSOR_PIN);
+    float adcVoltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
     return adcVoltage * ((R1 + R2) / R2);
 }
 
-float readRawCurrent() {
-    int rawValue = analogRead(CURRENT_SENSOR_PIN);
-    float voltage = (rawValue / 4095.0) * ADC_REF_VOLTAGE;
-    float current = (voltage - 2.5) / (ACS712_SENSITIVITY / 1000.0);
+float Sensors::readRawCurrent() {
+    int raw = analogRead(CURRENT_SENSOR_PIN);
+    float voltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    float current = (voltage - 2.5f) / (ACS712_SENSITIVITY / 1000.0f);
     return current < 0 ? 0 : current;
 }
 
-// Check for sensor faults
-bool checkSensorFault() {
+bool Sensors::checkFault() {
     float temp = readRawTemperature();
     float voltage = readRawVoltage();
-    
-    // Check for open circuit (0V or max)
-    if (temp < 0.1 || temp > 3.3) return true;
-    if (voltage < 0.1) return true;
-
-    return false;
+    // Check for open circuit (0V or very low voltage at sensor)
+    return (temp < 0.1f || temp > 3.2f || voltage < 0.1f);
 }

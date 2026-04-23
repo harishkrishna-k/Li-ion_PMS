@@ -1,17 +1,32 @@
 /**
  * Li-ion Battery Monitoring System
- * Dashboard with Chart.js Integration
+ * Dashboard JavaScript
+ * 
+ * IMPORTANT: This file generates MOCK DATA for demonstration purposes.
+ * The actual ESP32 firmware sends data to Supabase, but this frontend
+ * does NOT fetch from the cloud - it simulates data locally for the portfolio.
+ * 
+ * To connect to real Supabase data, you would need to:
+ * 1. Add @supabase/supabase-js library
+ * 2. Configure your Supabase URL and key
+ * 3. Replace mock data functions with actual API calls
+ * 
+ * Example real implementation:
+ *   const { data, error } = await supabase
+ *     .from('sensor_readings')
+ *     .select('*')
+ *     .order('created_at', { ascending: false })
+ *     .limit(10);
  */
 
 (function() {
     'use strict';
 
     // Configuration
-    const SUPABASE_URL = 'https://your-project.supabase.co';
-    const SUPABASE_KEY = 'your-anon-key';
-    const REFRESH_INTERVAL = 5000;
+    const REFRESH_INTERVAL = 3000;
+    const IS_MOCK_DATA = true;  // This dashboard uses mock data
 
-    // Mock data for demonstration
+    // Mock sensor data - generated locally for portfolio demo only!
     const mockData = {
         voltage: 12.6,
         current: 1.24,
@@ -22,7 +37,7 @@
         dbConnected: true
     };
 
-    // Historical data
+    // Generate initial mock historical data
     const historicalData = {
         labels: [],
         voltage: [],
@@ -30,7 +45,6 @@
         temperature: []
     };
 
-    // Generate initial data
     function generateInitialData() {
         const now = Date.now();
         for (let i = 30; i >= 0; i--) {
@@ -45,9 +59,9 @@
         }
     }
 
-    // Update dashboard
+    // Update dashboard with mock data
     function updateDashboard() {
-        // Simulate small variations
+        // Add some random variation to simulate "live" data
         mockData.voltage = +(mockData.voltage + (Math.random() - 0.5) * 0.1).toFixed(2);
         mockData.current = +(mockData.current + (Math.random() - 0.5) * 0.2).toFixed(2);
         mockData.temperature = +(mockData.temperature + (Math.random() - 0.5) * 1).toFixed(1);
@@ -55,22 +69,30 @@
         // Update SOC from voltage
         const socFromVoltage = Math.min(100, Math.max(0,
             ((mockData.voltage - 8.0) / (12.9 - 8.0)) * 100
-        ));
+        )));
         mockData.soc = socFromVoltage;
 
-        // Hero stats
-        document.getElementById('voltage').textContent = mockData.voltage.toFixed(1);
-        document.getElementById('current').textContent = mockData.current.toFixed(2);
-        document.getElementById('temperature').textContent = mockData.temperature.toFixed(1);
-        document.getElementById('soc').textContent = Math.round(mockData.soc);
+        // Update hero stats
+        const heroEls = ['voltage', 'current', 'temperature', 'soc'];
+        heroEls.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = id === 'voltage' ? mockData.voltage.toFixed(1) :
+                                         id === 'current' ? mockData.current.toFixed(2) :
+                                         id === 'temperature' ? mockData.temperature.toFixed(1) :
+                                         Math.round(mockData.soc);
+        });
 
-        // Card values
-        document.getElementById('card-voltage').textContent = mockData.voltage.toFixed(1);
-        document.getElementById('card-current').textContent = mockData.current.toFixed(2);
-        document.getElementById('card-temperature').textContent = mockData.temperature.toFixed(1);
-        document.getElementById('card-soc').textContent = Math.round(mockData.soc);
+        // Update cards
+        const cardEls = ['card-voltage', 'card-current', 'card-temperature', 'card-soc'];
+        cardEls.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = id === 'card-voltage' ? mockData.voltage.toFixed(1) :
+                                       id === 'card-current' ? mockData.current.toFixed(2) :
+                                       id === 'card-temperature' ? mockData.temperature.toFixed(1) :
+                                       Math.round(mockData.soc);
+        });
 
-        // Gauge fills
+        // Update gauges
         document.getElementById('voltage-gauge').style.width =
             ((mockData.voltage / 14.4) * 100) + '%';
         document.getElementById('current-gauge').style.width =
@@ -83,17 +105,12 @@
 
         document.getElementById('soc-gauge').style.width = mockData.soc + '%';
 
-        // Status indicators
+        // Update status indicators
         const statusText = document.getElementById('status-text');
-        if (statusText) {
-            statusText.textContent = mockData.status === 'charging' ? 'Charging' : 'Discharging';
-        }
-
-        // Update chart
-        updateChart();
+        if (statusText) statusText.textContent = mockData.status === 'charging' ? 'Charging' : 'Discharging';
     }
 
-    // Chart instance
+    // Chart functions
     let chart = null;
 
     function initChart() {
@@ -113,12 +130,9 @@
     function updateChart() {
         if (!chart) return;
 
-        const { ctx, width, height, data } = chart;
-
-        // Add new data point periodically
+        // Occasionally add new mock data point
         if (Math.random() > 0.7) {
-            const now = new Date();
-            historicalData.labels.push(now.toLocaleTimeString('en-US', {
+            historicalData.labels.push(new Date().toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit'
             }));
@@ -126,7 +140,6 @@
             historicalData.current.push(mockData.current);
             historicalData.temperature.push(mockData.temperature);
 
-            // Keep last 30 points
             if (historicalData.labels.length > 30) {
                 historicalData.labels.shift();
                 historicalData.voltage.shift();
@@ -141,7 +154,7 @@
     function drawChart() {
         if (!chart) return;
 
-        const { ctx, width, height, data } = chart;
+        const { ctx, width, height } = chart;
         const { labels, voltage, current, temperature } = historicalData;
 
         ctx.clearRect(0, 0, width, height);
@@ -173,7 +186,6 @@
             values.forEach((val, idx) => {
                 const x = padding.left + (idx / (values.length - 1)) * chartWidth;
                 const y = padding.top + (1 - (val - minVal) / (maxVal - minVal)) * chartHeight;
-
                 if (idx === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             });
@@ -198,36 +210,33 @@
 
         ctx.textAlign = 'left';
         ctx.fillText('V', width - 40, 20);
-        ctx.fillStyle = '#00d4aa';
         ctx.fillRect(width - 55, 12, 10, 10);
-
-        ctx.fillStyle = '#a0a0a0';
         ctx.fillText('A', width - 40, 40);
-        ctx.fillStyle = '#3498db';
         ctx.fillRect(width - 55, 32, 10, 10);
-
-        ctx.fillStyle = '#a0a0a0';
         ctx.fillText('°C', width - 40, 60);
-        ctx.fillStyle = '#e74c3c';
         ctx.fillRect(width - 55, 52, 10, 10);
     }
 
     // Initialize
     function init() {
+        console.log('Dashboard initialized');
+        console.log('NOTE: This demo uses MOCK DATA for portfolio demonstration.');
+        console.log('To connect to real Supabase, update with actual API calls.');
+        
         generateInitialData();
         updateDashboard();
         initChart();
 
-        // Update intervals
-        setInterval(updateDashboard, 3000);
+        setInterval(() => {
+            updateDashboard();
+            updateChart();
+        }, REFRESH_INTERVAL);
 
-        // Window resize handler
         window.addEventListener('resize', () => {
             initChart();
         });
     }
 
-    // Start
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {

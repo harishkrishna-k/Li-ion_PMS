@@ -1,90 +1,78 @@
 # Li-ion Battery Performance Monitoring System (Li-ion_PMS)
 
-A comprehensive IoT-based battery monitoring system built with ESP32, featuring professional hardware design, cloud integration, and advanced signal processing.
+## ⚠️ IMPORTANT DISCLAIMERS - READ BEFORE USE
 
-![ESP32](https://img.shields.io/badge/ESP32-NodeMCU-red)
-![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Arduino](https://img.shields.io/badge/Arduino-ESP32-red)
+### 1. Blocking Operations
+The HTTP calls to Supabase are **BLOCKING**. The `http.POST()` function will freeze the ESP32 during network operations. This means:
+- Temperature monitoring stops while uploading to cloud
+- WiFi latency affects responsiveness
 
-## 🎯 Project Overview
+**For production use:** Implement FreeRTOS tasks or use async HTTP client.
 
-This is an engineering case study demonstrating a complete IoT solution:
+### 2. Mock Data Dashboard
+The portfolio dashboard (`/docs`) displays **MOCK DATA**, not real cloud data. The JavaScript generates random values for visual demonstration only.
 
-- **Embedded Systems**: ESP32 firmware with non-blocking architecture, signal processing, and PID control
-- **Hardware Design**: Professional PCB specifications, thermal management, and component integration
-- **Cloud Infrastructure**: Supabase PostgreSQL with time-series optimization and analytics
-- **Portfolio Presentation**: Professional case study website with live data visualization
+To see real data:
+1. Set up Supabase
+2. Configure credentials in firmware
+3. Implement frontend API fetching using `@supabase/supabase-js`
 
-## ✨ Key Features
+### 3. Memory Considerations
+This code uses simple arrays and the Arduino `String` class. For long-running deployments:
+- Consider using ESP-IDF's filter component
+- Buffer overflow is possible with large payloads
+
+### 4. Sensor Calibration
+Calibration offsets are set to 0.0 by default. Run the calibration function with no load for accurate readings.
+
+---
+
+## Features
 
 ### Hardware
 - **Controller**: NodeMCU ESP32 (WiFi + Bluetooth)
 - **Sensors**: LM35 (temperature), ACS712-5A (current), voltage divider
 - **Display**: 16×2 LCD (I2C interface)
-- **Control**: Relay module + BLDC fan with PID control
+- **Control**: Relay module + BLDC fan
 
-### Firmware (v2.0)
-- **Non-blocking**: millis() timers instead of delay()
-- **Signal Processing**: 32× oversampling + 10-sample moving average
-- **PID Control**: Precision temperature management
-- **WiFi Manager**: Web portal configuration
-- **OTA Updates**: Over-The-Air firmware updates
-- **Deep Sleep**: Power saving modes
+### Firmware (v2.1)
+- Simple averaging filters (not "advanced signal processing")
+- Basic threshold-based fan control (not true PID)
+- Hardcoded credentials (not fully dynamic)
+- Known blocking HTTP calls
 
-### Cloud
-- **Database**: Supabase PostgreSQL
-- **Analytics**: Hourly/daily aggregates, SOH calculation
-- **Retention**: Automatic 90-day data pruning
-- **Security**: Row Level Security (RLS)
+---
 
-## 📊 Live Dashboard
+## Known Limitations
 
-Visit the live dashboard: **[harishkrishna-k.github.io/Li-ion_PMS](https://harishkrishna-k.github.io/Li-ion_PMS)**
+| Issue | Description | Fix Required |
+|-------|-------------|---------------|
+| Blocking HTTP | http.POST() freezes ESP32 | Use async HTTP or FreeRTOS |
+| Mock Dashboard | Frontend shows random data | Implement real API fetch |
+| Memory | String concatenation fragments heap | Use static buffers/ArduinoJson |
+| Database | Raw queries on large tables | Add materialized views |
+| Architecture | Global variables everywhere | Refactor to proper state machine |
 
-The dashboard displays:
-- Real-time voltage, current, temperature
-- State of Charge (SOC) percentage
-- Historical data charts
-- Connection status indicators
+---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Hardware Setup
-
-| GPIO | Component |
-|------|-----------|
-| 34 | LM35 Temperature |
-| 36 | ACS712 Current |
-| 39 | Voltage Divider |
-| 32 | Charger Detect |
-| 27 | Relay Control |
-| 26 | Fan PWM |
-| 21 | LCD SDA |
-| 22 | LCD SCL |
-
-See [hardware/pinout.md](hardware/pinout.md) for complete wiring.
+See [hardware/pinout.md](hardware/pinout.md) for wiring.
 
 ### Software Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/harishkrishna-k/Li-ion_PMS.git
-   cd Li-ion_PMS
+1. Install ESP32 board support in Arduino IDE
+2. Update WiFi credentials in `main.ino`:
+   ```cpp
+   const char* WIFI_SSID = "YourNetwork";
+   const char* WIFI_PASSWORD = "YourPassword";
+   const char* SUPABASE_URL = "your-project.supabase.co";
+   const char* SUPABASE_ANON_KEY = "your-key";
    ```
-
-2. **Configure Supabase**
-   - Create a Supabase project
-   - Run `database/schema.sql` in SQL Editor
-   - Update credentials in `src/esp32/main.ino`
-
-3. **Upload to ESP32**
-   - Select Board: "ESP32 Dev Module"
-   - Upload using Arduino IDE or PlatformIO
+3. Upload to ESP32
 
 ### Configuration
-
-Update WiFi and Supabase credentials:
+Update Supabase credentials directly in the firmware (hardcoded for simplicity):
 
 ```cpp
 // In main.ino
@@ -92,76 +80,82 @@ const char* SUPABASE_URL = "https://your-project.supabase.co";
 const char* SUPABASE_ANON_KEY = "your-anon-key";
 ```
 
-Or use WiFi Manager (access point mode) at `http://192.168.4.1`
+---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Li-ion_PMS/
 ├── README.md                    # This file
-├── config.env.example         # Configuration template
-├── LICENSE                   # MIT License
+├── config.env.example
+├── LICENSE
 ├── .gitignore
 ├── src/esp32/
-│   ├── main.ino              # Main ESP32 sketch
-│   ├── sensors.cpp/h          # Signal processing
-│   ├── lcd_display.cpp/h     # LCD interface
-│   ├── relay_control.cpp/h   # PID fan control
-│   └── database.cpp/h        # Supabase client
-├── docs/                     # Portfolio website
-│   ├── index.html           # Case study site
-│   ├── css/style.css        # Styles
-│   ├── js/script.js        # Dashboard JS
-│   └── assets/             # Images
+│   ├── main.ino                 # Main sketch
+│   ├── sensors.cpp/h            # Sensor processing
+│   ├── lcd_display.cpp/h
+│   ├── relay_control.cpp/h
+│   └── database.cpp/h           # Note: Uses blocking HTTP
+├── docs/
+│   ├── index.html              # Case study (with mock data)
+│   ├── css/style.css
+│   └── js/script.js             # Generates MOCK data
 ├── hardware/
-│   ├── pinout.md           # Pin configuration
-│   ├── pcb-design.md      # PCB specs
-│   └── schematic.md       # Circuits
+│   ├── pinout.md
+│   ├── pcb-design.md
+│   └── schematic.md
 └── database/
-    └── schema.sql         # PostgreSQL schema
+    └── schema.sql               # Requires materialized views for performance
 ```
 
-## 📈 Technical Specifications
+---
+
+## Technical Specs
 
 | Parameter | Value |
 |-----------|-------|
 | Operating Voltage | 8.0V - 12.9V |
 | Current Range | 0 - 5A |
 | Temperature Range | -55°C to +150°C |
-| ADC Resolution | 12-bit (ESP32) |
-| Sensor Rate | 1 Hz |
-| Cloud Sync | 5 seconds |
+| Data Rate | 1 Hz sensor, 5 sec cloud |
 | Power (Active) | ~630mA |
-| Power (Sleep) | 10µA |
+| **Known Issues** | Blocking calls, mock dashboard |
 
-## 🧪 Testing Results
+---
+
+## Testing Results
 
 | Test | Result |
 |------|--------|
-| Voltage Accuracy | ±0.05V ✓ |
-| Current Accuracy | ±0.08A ✓ |
-| Temperature Accuracy | ±0.3°C ✓ |
-| PID Response | 60% overshoot reduction ✓ |
-| Deep Sleep | 99% power reduction ✓ |
+| Voltage Accuracy | ±0.05V |
+| Current Accuracy | ±0.08A |
+| Temperature Accuracy | ±0.3°C |
 
-## 📚 Documentation
+---
 
-- [Hardware Pinout](hardware/pinout.md)
-- [PCB Design Specs](hardware/pcb-design.md)
-- [Circuit Schematic](hardware/schematic.md)
-- [Database Schema](database/schema.sql)
+## Contributors
 
-## 👥 Project Team
-
-- **Harish Krishna K** - Hardware & Firmware Development
-- **Jayaram H** - CAD Design & Modeling  
+- **Harish Krishna K** - Hardware & Firmware
+- **Jayaram H** - CAD Design
 - **Navin Y** - Testing & Validation
 - **Guide**: Dr. M. Chandrasekar, Anna University
 
-## 📄 License
+---
+
+## License
 
 MIT License - See [LICENSE](LICENSE)
 
 ---
 
-<p align="center">Built with ESP32 & Supabase | Engineering Case Study 2023</p>
+## Summary
+
+This is a **student project** with documented limitations. It demonstrates:
+- Basic IoT system design
+- ESP32 programming
+- Supabase integration (basic)
+- Hardware prototyping
+
+It is **NOT** production-ready. See "Known Limitations" table above.
+
+For a portfolio, present it as a learning project with clear acknowledgments of what works and what needs improvement.
