@@ -64,9 +64,9 @@ void MovingAverageFilter::reset() {
 // ============================================================================
 
 Sensors::Sensors() 
-    : tempFilter(10)
-    , voltageFilter(10)
-    , currentFilter(10)
+    : tempFilter(15)
+    , voltageFilter(0.005, 0.05, 12.0) // Process noise, Measurement noise, Initial value
+    , currentFilter(0.01, 0.5, 0.0)    // Current is noisier, higher R
     , voltageOffset(0.0f)
     , currentOffset(0.0f)
     , tempOffset(0.0f) {}
@@ -77,39 +77,69 @@ void Sensors::init() {
     pinMode(CURRENT_SENSOR_PIN, INPUT);
 
     analogReadResolution(12);
-    analogSetAttenuation(ADC_0_3V);
+    // Use 11dB attenuation for 0-3.6V range on ESP32
+    analogSetAttenuation(ADC_ATTEN_DB_11);
 
-    Serial.println("Sensors initialized (simple averaging)");
+    Serial.println("Sensors initialized (Kalman filtering)");
 }
 
 float Sensors::readTemperature() {
     int raw = analogRead(TEMP_SENSOR_PIN);
-    float voltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    // 12-bit ADC, 11dB attenuation gives ~3.6V full scale
+    float voltage = (raw / 4095.0f) * 3.6f;
     float temperature = voltage * 100.0f + tempOffset;
     return tempFilter.update(temperature);
 }
 
 float Sensors::readVoltage() {
     int raw = analogRead(VOLTAGE_SENSOR_PIN);
-    float adcVoltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    float adcVoltage = (raw / 4095.0f) * 3.6f;
     float actualVoltage = adcVoltage * ((R1 + R2) / R2) + voltageOffset;
     return voltageFilter.update(actualVoltage);
 }
 
 float Sensors::readCurrent() {
     int raw = analogRead(CURRENT_SENSOR_PIN);
-    float voltage = (raw / 4095.0f) * ADC_REF_VOLTAGE;
+    float voltage = (raw / 4095.0f) * 3.6f;
+    // ACS712-5A is 185mV/A. If powered by 5V, offset is 2.5V.
+    // If we use a divider to bring 5V range to 3.3V range for ESP32:
+    // We assume the user has a divider or a 3.3V version.
+    // Standard ACS712-5A: I = (Vout - Vcc/2) / sensitivity
     float current = (voltage - 2.5f) / (ACS712_SENSITIVITY / 1000.0f);
-    if (current < 0.01f) current = 0;
+    if (abs(current) < 0.05f) current = 0; // Deadzone for noise
     current += currentOffset;
     return currentFilter.update(current);
 }
 
 float Sensors::calculateSOC(float voltage) {
-    const float MAX_VOLTAGE = 12.9f;
-    const float MIN_VOLTAGE = 8.0f;
-    float soc = ((voltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100.0f;
-    return constrain(soc, 0.0f, 100.0f);
+    // 3S Li-ion Battery Discharge Curve (Typical)
+    // Voltage per cell: 3.0V (0%) to 4.2V (100%)
+    // Pack voltage: 9.0V to 12.6V
+    
+    struct VoltagePoint {
+        float voltage;
+        float soc;
+    };
+
+    static const VoltagePoint lut[] = {
+        {12.60, 100}, {12.30, 90}, {12.10, 80}, {11.90, 70},
+        {11.70, 60},  {11.45, 50}, {11.30, 40}, {11.10, 30},
+        {10.80, 20},  {10.50, 10}, {9.00, 0}
+    };
+    const int lutSize = sizeof(lut) / sizeof(lut[0]);
+
+    if (voltage >= lut[0].voltage) return 100.0f;
+    if (voltage <= lut[lutSize - 1].voltage) return 0.0f;
+
+    for (int i = 0; i < lutSize - 1; i++) {
+        if (voltage <= lut[i].voltage && voltage > lut[i+1].voltage) {
+            // Linear interpolation between points
+            float vRange = lut[i].voltage - lut[i+1].voltage;
+            float socRange = lut[i].soc - lut[i+1].soc;
+            return lut[i+1].soc + (voltage - lut[i+1].voltage) * (socRange / vRange);
+        }
+    }
+    return 0.0f;
 }
 
 void Sensors::calibrate() {

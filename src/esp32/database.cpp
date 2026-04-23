@@ -19,63 +19,90 @@ const char* TABLE_NAME = "sensor_readings";
 
 bool _connected = false;
 unsigned long _lastPostTime = 0;
-int _retryCount = 0;
-const int MAX_RETRIES = 3;
 
-// Static buffer for JSON payload - no heap allocation
-static char jsonBuffer[128];
+// FreeRTOS components
+static QueueHandle_t dbQueue = NULL;
+static TaskHandle_t dbTaskHandle = NULL;
+
+// Forward declaration of the internal POST function
+int sendPost(const char* payload);
+
+// The worker task that runs in the background
+void dbWorkerTask(void* parameter) {
+    DBReading reading;
+    char payload[160];
+
+    Serial.println("DB Task: Started on Core " + String(xPortGetCoreID()));
+
+    for (;;) {
+        // Wait for data in the queue (blocks this task, but not the main loop)
+        if (xQueueReceive(dbQueue, &reading, portMAX_DELAY) == pdPASS) {
+            if (WiFi.status() == WL_CONNECTED) {
+                snprintf(payload, sizeof(payload),
+                    "{\"voltage\":%.2f,\"current\":%.2f,\"temperature\":%.1f,\"battery_status\":\"%s\"}",
+                    reading.voltage, reading.current, reading.temperature, reading.status);
+
+                int httpCode = sendPost(payload);
+                
+                if (httpCode > 0) {
+                    _lastPostTime = millis();
+                    Serial.println("DB Task: Record sent successfully");
+                } else {
+                    Serial.println("DB Task: POST failed, code: " + String(httpCode));
+                }
+            } else {
+                Serial.println("DB Task: WiFi disconnected, skipping");
+            }
+        }
+    }
+}
 
 // Initialize database connection
 void databaseInit(const char* url, const char* key) {
     BASE_URL = url;
     ANON_KEY = key;
     _connected = true;
-    _retryCount = 0;
-    Serial.println("Database client initialized (note: HTTP calls are blocking)");
+    
+    // Create queue for 10 readings
+    dbQueue = xQueueCreate(10, sizeof(DBReading));
+    
+    Serial.println("Database client initialized (Async via FreeRTOS)");
 }
 
-// Send reading to Supabase - uses non-blocking pattern via call checking
+// Start the background task
+void databaseStartTask() {
+    if (dbTaskHandle == NULL) {
+        // Run on Core 0 to leave Core 1 for main application/WiFi
+        xTaskCreatePinnedToCore(
+            dbWorkerTask,   // Task function
+            "DBWorker",     // Name
+            8192,           // Stack size
+            NULL,           // Parameter
+            1,              // Priority
+            &dbTaskHandle,  // Handle
+            0               // Core
+        );
+    }
+}
+
+// Send reading to queue (non-blocking)
 int databaseSendReading(float voltage, float current, float temperature, const char* batteryStatus) {
-    if (!_connected) return -1;
+    if (!_connected || dbQueue == NULL) return -1;
 
-    // Build JSON using static buffer - no heap fragmentation
-    // Format: {"voltage":12.50,"current":1.20,"temperature":25.0,"battery_status":"charging"}
-    int len = snprintf(jsonBuffer, sizeof(jsonBuffer),
-        "{\"voltage\":%.2f,\"current\":%.2f,\"temperature\":%.1f,\"battery_status\":\"%s\"}",
-        voltage, current, temperature, batteryStatus);
-    
-    if (len <= 0 || len >= (int)sizeof(jsonBuffer)) {
-        Serial.println("DB: JSON buffer overflow");
-        return -1;
+    DBReading reading;
+    reading.voltage = voltage;
+    reading.current = current;
+    reading.temperature = temperature;
+    strncpy(reading.status, batteryStatus, sizeof(reading.status) - 1);
+    reading.status[sizeof(reading.status) - 1] = '\0';
+
+    // Try to add to queue, don't wait if full (non-blocking)
+    if (xQueueSend(dbQueue, &reading, 0) == pdPASS) {
+        return 1; // Success (queued)
+    } else {
+        Serial.println("DB: Queue full, dropping record");
+        return -2;
     }
-
-    // Note: http.begin() and http.POST() are blocking calls
-    // This is a known limitation of ESP32 http library
-    // For production, use async HTTP client or FreeRTOS tasks
-    
-    _retryCount = 0;
-    int httpCode = -1;
-
-    while (_retryCount < MAX_RETRIES) {
-        httpCode = sendPost(jsonBuffer);
-
-        if (httpCode > 0) {
-            _lastPostTime = millis();
-            return httpCode;
-        }
-
-        // Non-blocking retry schedule (still uses delay, but shorter)
-        // In production, use connection timeout instead of retry delay
-        _retryCount++;
-        if (_retryCount < MAX_RETRIES) {
-            delay(50 * _retryCount);  // Reduced delay: 50, 100, 150ms
-        }
-    }
-
-    Serial.print("DB: Failed after ");
-    Serial.print(MAX_RETRIES);
-    Serial.println(" retries");
-    return httpCode;
 }
 
 // Internal POST function with static buffer

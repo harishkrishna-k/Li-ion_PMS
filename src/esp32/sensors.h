@@ -30,14 +30,45 @@ public:
 };
 
 // ============================================================================
+// Kalman Filter Class (Simple 1D)
+// ============================================================================
+
+class KalmanFilter {
+private:
+    float q; // Process noise covariance
+    float r; // Measurement noise covariance
+    float x; // Value
+    float p; // Estimation error covariance
+    float k; // Kalman gain
+
+public:
+    KalmanFilter(float processNoise = 0.01, float measurementNoise = 0.1, float initialValue = 0)
+        : q(processNoise), r(measurementNoise), x(initialValue), p(1.0), k(0) {}
+
+    float update(float measurement) {
+        // Prediction update
+        p = p + q;
+
+        // Measurement update
+        k = p / (p + r);
+        x = x + k * (measurement - x);
+        p = (1 - k) * p;
+
+        return x;
+    }
+
+    float getValue() const { return x; }
+};
+
+// ============================================================================
 // Sensors Class
 // ============================================================================
 
 class Sensors {
 private:
     MovingAverageFilter tempFilter;
-    MovingAverageFilter voltageFilter;
-    MovingAverageFilter currentFilter;
+    KalmanFilter voltageFilter;
+    KalmanFilter currentFilter;
     
     float voltageOffset;
     float currentOffset;
